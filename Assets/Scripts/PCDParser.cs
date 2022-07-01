@@ -7,22 +7,86 @@ using UnityEngine;
 
 public static class PCDParser
 {
-
-    public static void ParsePCD(byte[] bytes)
+    public static bool ready
     {
-        Thread t = new Thread(ParsePCDThread);
+        get;
+        private set;
+    }
 
-        t.Start(bytes);
+    public static void ParsePCD(byte[] bytes, Action<PCDData> callback)
+    {
+        ready = false;
+        Thread t = new Thread(() => ParsePCDThread(bytes, callback));
+
+        t.Start();
     }
 
 
-    private static void ParsePCDThread(object obj)
+    private static void ParsePCDThread(byte[] bytes, Action<PCDData> callback)
     {
-        byte[] bytes = (byte[]) obj;
-
         PCDData pcd = ParseHeader(bytes);
-        
-        Debug.Log(pcd.ToString());
+    
+        float[] position = new float[pcd.points * 3];
+
+        int color_offset = 0;
+
+        pcd.offset.TryGetValue("rgb", out color_offset);
+
+        if(color_offset == 0)
+            pcd.offset.TryGetValue("rgba", out color_offset);
+
+        byte[] color;
+        bool colorBool = true;
+        if(color_offset > 0)
+        {
+            colorBool = true;
+            color = new byte[pcd.points * 3];
+        }
+
+        color = new byte[pcd.points * 3];
+
+        if(pcd.data.Equals("ascii"))
+        {
+            Debug.Log("ASCII NYI");
+            return;
+        }
+
+        if(pcd.data.Equals("binary"))
+        {
+            int row = 0;
+            byte[] data = new byte[bytes.Length - pcd.headerLen];
+
+            Array.Copy(bytes, 0, data, 0, data.Length);
+
+            for(int p = 0; p < pcd.points; row += pcd.rowSize, p++)
+            {
+                byte[] pos = new byte[sizeof(float)];
+                Array.Copy(data, row + pcd.offset["x"], pos, 0, sizeof(float));
+                Array.Reverse(pos);
+                position[p * 3 + 0] = BitConverter.ToSingle(pos, 0);
+
+                Array.Copy(data, row + pcd.offset["y"], pos, 0, sizeof(float));
+                Array.Reverse(pos);
+                position[p * 3 + 1] = BitConverter.ToSingle(pos, 0);
+
+                Array.Copy(data, row + pcd.offset["z"], pos, 0, sizeof(float));
+                Array.Reverse(pos);
+                position[p * 3 + 2] = BitConverter.ToSingle(pos, 0);
+                
+                if(colorBool)
+                {
+                    color[p * 3 + 2] = data[row + color_offset + 0];
+                    color[p * 3 + 1] = data[row + color_offset + 1];
+                    color[p * 3 + 0] = data[row + color_offset + 2];
+                }
+
+                pcd.position = position;
+                pcd.color = color;
+            }
+        }
+        ready = true;
+        callback.Invoke(pcd);
+
     }
 
     private static PCDData ParseHeader(byte[] bytes)
@@ -174,6 +238,8 @@ public struct PCDData
     internal int points;
     internal Dictionary<string, int> offset;
     internal int rowSize;
+    internal float[] position;
+    internal byte[] color;
 
     public override string ToString()
     {
