@@ -25,9 +25,21 @@ public static class PCDParser
     private static void ParsePCDThread(byte[] bytes, Action<PCDData> callback)
     {
         PCDData pcd = ParseHeader(bytes);
-    
-        float[] position = new float[pcd.points * 3];
+        Debug.Log(pcd.str);
 
+        List<Vector3> position = new List<Vector3>();
+/*
+        Debug.Log("------ " + pcd.headerLen + " -----------");
+
+        for(int x = 0; x < pcd.headerLen + 6; x++)
+        {
+            if(x == pcd.headerLen)
+                Debug.Log("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+
+            Debug.Log(x + ": " + bytes[x]);
+            
+        }
+*/
         int color_offset = 0;
 
         pcd.offset.TryGetValue("rgb", out color_offset);
@@ -35,15 +47,8 @@ public static class PCDParser
         if(color_offset == 0)
             pcd.offset.TryGetValue("rgba", out color_offset);
 
-        byte[] color;
-        bool colorBool = true;
-        if(color_offset > 0)
-        {
-            colorBool = true;
-            color = new byte[pcd.points * 3];
-        }
-
-        color = new byte[pcd.points * 3];
+        List<Color> color = new List<Color>();
+        bool colorBool = color_offset > 0;
 
         if(pcd.data.Equals("ascii"))
         {
@@ -56,34 +61,58 @@ public static class PCDParser
             int row = 0;
             byte[] data = new byte[bytes.Length - pcd.headerLen];
 
-            Array.Copy(bytes, 0, data, 0, data.Length);
+            Vector3 positionTmp = new Vector3();
+            Color colorTmp = new Color();
+            colorTmp.a = 1f;
+            Array.Copy(bytes, pcd.headerLen, data, 0, data.Length);
 
             for(int p = 0; p < pcd.points; row += pcd.rowSize, p++)
             {
                 byte[] pos = new byte[sizeof(float)];
                 Array.Copy(data, row + pcd.offset["x"], pos, 0, sizeof(float));
-                Array.Reverse(pos);
-                position[p * 3 + 0] = BitConverter.ToSingle(pos, 0);
-
+                //Array.Reverse(pos);
+                positionTmp.x = BitConverter.ToSingle(pos, 0);
+                
                 Array.Copy(data, row + pcd.offset["y"], pos, 0, sizeof(float));
-                Array.Reverse(pos);
-                position[p * 3 + 1] = BitConverter.ToSingle(pos, 0);
+                //Array.Reverse(pos);
+                positionTmp.y = BitConverter.ToSingle(pos, 0);
 
                 Array.Copy(data, row + pcd.offset["z"], pos, 0, sizeof(float));
-                Array.Reverse(pos);
-                position[p * 3 + 2] = BitConverter.ToSingle(pos, 0);
+                //Array.Reverse(pos);
+                positionTmp.z = BitConverter.ToSingle(pos, 0);
                 
                 if(colorBool)
                 {
-                    color[p * 3 + 2] = data[row + color_offset + 0];
-                    color[p * 3 + 1] = data[row + color_offset + 1];
-                    color[p * 3 + 0] = data[row + color_offset + 2];
+                    colorTmp.b = ((float) data[row + color_offset + 0])/255f;
+                    colorTmp.g = ((float) data[row + color_offset + 1])/255f;
+                    colorTmp.r = ((float) data[row + color_offset + 2])/255f;
                 }
 
-                pcd.position = position;
-                pcd.color = color;
+                position.Add(positionTmp);
+                color.Add(colorTmp);
+                if (!float.IsInfinity(positionTmp.x) && !float.IsInfinity(positionTmp.y) && !float.IsInfinity(positionTmp.z) && !float.IsNaN(positionTmp.x) && !float.IsNaN(positionTmp.y) && !float.IsNaN(positionTmp.z))
+                {
+                    
+                    Debug.Log("(" + positionTmp.x + " - " + positionTmp.y + " - " + positionTmp.z + ")");
+                }
             }
+            /*
+            for(int i = 0; i < position.Count; i++)
+                Debug.Log(i + ": (" + position[i].x + " - " + position[i].y + " - " + position[i].z + ")");
+*/
+            pcd.position = position.ToArray();
+            pcd.color = color.ToArray();
         }
+        /*
+        for(int i = 0; i < pcd.position.Length; i++)
+        {
+            if (float.IsInfinity(pcd.position[i].x) || float.IsInfinity(pcd.position[i].y) || float.IsInfinity(pcd.position[i].z) || float.IsNaN(pcd.position[i].x) || float.IsNaN(pcd.position[i].y) || float.IsNaN(pcd.position[i].z))
+            {
+                Debug.Log(pcd.position[i]);
+            }      
+        }
+        */
+        pcd.points = pcd.position.Length;
         ready = true;
         callback.Invoke(pcd);
 
@@ -93,30 +122,34 @@ public static class PCDParser
     {
         PCDData pcd = new PCDData();
         
-        string headerText = System.Text.Encoding.Default.GetString(bytes, 0, 1024);
+        string headerText = "";
 
         int max = bytes.Length;
 
         // Find DATA field (end of header)
-        Match m = Regex.Match(headerText, "[\r\n]DATA\\s(\\S*)\\s");
+        Regex rg = new Regex("[\r\n]DATA\\s(\\S*)\\s");
+        Match m;
+        int j = 0;
+        do{
+            headerText += Convert.ToChar(bytes[j++]);
+            m = rg.Match(headerText);
+        }while(j < max && !m.Success);
         
         pcd.data = m.Groups[1].Value;
         pcd.headerLen = m.Index + m.Groups[0].Length;
         pcd.str = headerText.Substring(0, pcd.headerLen);
-        Debug.Log("START");
+        
         // Remove comments
         pcd.str = Regex.Replace(pcd.str, "\\#.*\\n", "");
-        Debug.Log("1");
+        
         // Retrieve value from fields
         m = Regex.Match(pcd.str, "VERSION (.*)");
         if(m.Success)
         {
-            Debug.Log("SUCCESS");
             Debug.Log(m.Groups[1].Value);
             pcd.version = float.Parse("0" + m.Groups[1].Value);
         }
             
-        Debug.Log("2");
         m = Regex.Match(pcd.str, "FIELDS (.*)");
         if(m.Success)
         {
@@ -125,13 +158,13 @@ public static class PCDParser
         m = Regex.Match(pcd.str, "SIZE (.*)");
         if(m.Success)
         {
-            string[] tmp = m.Groups[1].Value.Split(' ');
+            string[] positionTmp = m.Groups[1].Value.Split(' ');
 
-            int[] val = new int[tmp.Length];
+            int[] val = new int[positionTmp.Length];
 
-            for(int i = 0; i < tmp.Length; i++)
+            for(int i = 0; i < positionTmp.Length; i++)
             {
-                val[i] = int.Parse(tmp[i]);
+                val[i] = int.Parse(positionTmp[i]);
             }
 
             pcd.size = val;
@@ -146,13 +179,13 @@ public static class PCDParser
         m = Regex.Match(pcd.str, "COUNT (.*)");
         if(m.Success)
         {
-            string[] tmp = m.Groups[1].Value.Split(' ');
+            string[] positionTmp = m.Groups[1].Value.Split(' ');
 
-            int[] val = new int[tmp.Length];
+            int[] val = new int[positionTmp.Length];
 
-            for(int i = 0; i < tmp.Length; i++)
+            for(int i = 0; i < positionTmp.Length; i++)
             {
-                val[i] = int.Parse(tmp[i]);
+                val[i] = int.Parse(positionTmp[i]);
             }
 
             pcd.count = val;
@@ -238,8 +271,8 @@ public struct PCDData
     internal int points;
     internal Dictionary<string, int> offset;
     internal int rowSize;
-    internal float[] position;
-    internal byte[] color;
+    internal Vector3[] position;
+    internal Color[] color;
 
     public override string ToString()
     {
