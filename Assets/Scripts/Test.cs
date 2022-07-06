@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.IO;
 using UnityEngine;
+using UnityEngine.Networking;
 
 public class Test: MonoBehaviour
 {
@@ -15,48 +16,27 @@ public class Test: MonoBehaviour
     {
         _mf = GetComponent<MeshFilter>();
         _ps = GetComponent<ParticleSystem>();
-
-        byte[] b = new byte[1];//File.ReadAllBytes("/Users/albertopatti/Git/PCDParser/Assets/5_icon.pcd");
-
-        StartCoroutine(PCDParser.ParsePCD(b, transform, _mf));
-
-    }
-/*
-    private IEnumerator ShowPointCloudMesh()
-    {
-        print("MESH");
-        while(!PCDParser.ready)
-            yield return null;
-
-        Mesh m = new Mesh();
-
-        m.SetVertices(_pcd.position);
-        m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-        m.SetIndices(Enumerable.Range(0, _pcd.points).ToArray(), MeshTopology.Points, 0);
-        m.SetColors(_pcd.color);
-        m.UploadMeshData(true);
-
-        _mf.mesh = m;
-
-        print("FINE MESH");
     }
 
-    private IEnumerator ShowPointCloudParticles()
+    public void LoadPCD()
     {
-        while(!PCDParser.ready)
-            yield return null;
+        StartCoroutine(LoadPCDCoroutine());
+    }
+
+    private IEnumerator LoadPCDCoroutine()
+    {
+        UriBuilder uriBuilder = new UriBuilder();
+        uriBuilder.Scheme = "file";
+        uriBuilder.Path = "D:/Other Projects/PointCloud/Assets/object3d.pcd";
+        print(uriBuilder.Uri);
+
+        UnityWebRequest request = UnityWebRequest.Get(uriBuilder.Uri);
+
+
+        yield return request.SendWebRequest();
+
+        byte[] bytes = request.downloadHandler.data;
         
-        var particles = new ParticleSystem.Particle[_pcd.points];
- 
-        for (int i = 0; i < particles.Length; ++i)
-        {
-            particles[i].position = _pcd.position[i];
-            particles[i].startSize = 0.005f;
-            particles[i].startColor = _pcd.color[i];
-        }
-
-        _ps.SetParticles(particles);
-        _ps.Pause();
+        yield return StartCoroutine(PCDParser.ParsePCD(bytes, transform, _mf));
     }
-    */
 }

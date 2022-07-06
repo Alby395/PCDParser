@@ -1,16 +1,16 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 
 public static class PCDParser
 {
+    private static int ThreadCount = 4;
+
     public static IEnumerator ParsePCD(byte[] bytes, Transform transform, MeshFilter mf)
     {
         Debug.Log("START");
@@ -22,20 +22,23 @@ public static class PCDParser
         PCDData data = task.Result;
 
         Mesh m = new Mesh();
-
+        m.name = "PointCloud";
         m.SetVertices(data.position);
         m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
         m.SetIndices(System.Linq.Enumerable.Range(0, data.points).ToArray(), MeshTopology.Points, 0);
         m.SetColors(data.color);
-        m.UploadMeshData(true);
 
+        yield return null;
+
+        m.UploadMeshData(true);
+        
+        yield return null;
         mf.mesh = m;
     }
 
 
     private static async Task<PCDData> ParsePCDThread(byte[] bytes)
     {
-        bytes = File.ReadAllBytes("/Users/albertopatti/Git/PCDParser/Assets/object3d.pcd"); //TODO Rimuovere
         PCDData pcd = ParseHeader(bytes);
 
         Debug.Log(pcd.str);
@@ -59,13 +62,12 @@ public static class PCDParser
 
         if(pcd.data.Equals("binary"))
         {
-            int split = 1;
-            int size = pcd.points/split;
+            int size = pcd.points/ThreadCount;
 
-            Task<PointData>[] tasks = new Task<PointData>[split];
+            Task<PointData>[] tasks = new Task<PointData>[ThreadCount];
             int i;
             
-            for(i = 0; i < split; i++)
+            for(i = 0; i < ThreadCount; i++)
             {
                 byte[] data = new byte[pcd.rowSize * size];
                 Array.Copy(bytes, pcd.headerLen + i * pcd.rowSize * size, data, 0, size * pcd.rowSize);
@@ -100,33 +102,27 @@ public static class PCDParser
         Vector3 positionTmp = new Vector3();
         Color32 colorTmp = new Color();
         colorTmp.a = 1;
+        
         int row = 0;
         for(int p = 0; p < points; row += rowSize, p++)
         {
-            byte[] pos = new byte[sizeof(float)];
-            Array.Copy(data, row + offset["x"], pos, 0, sizeof(float));
-            //Array.Reverse(pos);
-            positionTmp.x = BitConverter.ToSingle(pos, 0);
+            positionTmp.x = BitConverter.ToSingle(data, row + offset["x"]);
             
-            Array.Copy(data, row + offset["y"], pos, 0, sizeof(float));
-            //Array.Reverse(pos);
-            positionTmp.y = BitConverter.ToSingle(pos, 0);
+            positionTmp.y = BitConverter.ToSingle(data, row + offset["y"]);
 
-            Array.Copy(data, row + offset["z"], pos, 0, sizeof(float));
-            //Array.Reverse(pos);
-            positionTmp.z = BitConverter.ToSingle(pos, 0);
-            
-            if(color)
-            {
-                colorTmp.b = data[row + color_offset + 0];
-                colorTmp.g = data[row + color_offset + 1];
-                colorTmp.r = data[row + color_offset + 2];
-            }
-            
+            positionTmp.z = BitConverter.ToSingle(data, row + offset["z"]);
+                       
             if(!float.IsNaN(positionTmp.x) && !float.IsNaN(positionTmp.y) && !float.IsNaN(positionTmp.z))
             {
                 pointData.points.Add(positionTmp);
-                pointData.colors.Add(colorTmp);
+                
+                if(color)
+                {
+                    colorTmp.b = data[row + color_offset + 0];
+                    colorTmp.g = data[row + color_offset + 1];
+                    colorTmp.r = data[row + color_offset + 2];
+                    pointData.colors.Add(colorTmp);
+                }
             }
         }
 
